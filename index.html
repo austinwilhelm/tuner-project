@@ -6,17 +6,55 @@
   <title>Guitar Tuner</title>
   <style>
     body {
-      font-family: Arial, sans-serif;
+      font-family: 'Arial', sans-serif;
+      background-color: #f4f4f4;
       text-align: center;
       margin-top: 50px;
     }
-    #note {
-      font-size: 3em;
+    h1 {
+      color: #333;
+    }
+    #startButton {
+      padding: 10px 20px;
+      font-size: 16px;
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
       margin-top: 20px;
+    }
+    #startButton:hover {
+      background-color: #45a049;
+    }
+    #note {
+      font-size: 4em;
+      margin: 20px 0;
     }
     #frequency {
       font-size: 2em;
       color: gray;
+    }
+    .tuner-status {
+      font-size: 1.5em;
+      padding: 20px;
+      margin-top: 10px;
+      display: inline-block;
+      border-radius: 50%;
+      width: 80px;
+      height: 80px;
+      line-height: 80px;
+      text-align: center;
+      color: white;
+    }
+    .in-tune {
+      background-color: green;
+    }
+    .sharp {
+      background-color: blue;
+    }
+    .flat {
+      background-color: red;
     }
   </style>
 </head>
@@ -26,6 +64,7 @@
 <button id="startButton">Start Tuning</button>
 <div id="note">---</div>
 <div id="frequency">---</div>
+<div id="status" class="tuner-status">---</div>
 
 <script>
   const tuningFrequencies = [
@@ -39,9 +78,14 @@
 
   const noteElement = document.getElementById('note');
   const frequencyElement = document.getElementById('frequency');
+  const statusElement = document.getElementById('status');
   const startButton = document.getElementById('startButton');
 
   let audioContext, analyser, dataArray, microphone;
+  let frequencyHistory = [];
+  let lastUpdate = 0;
+  const smoothingWindow = 5; // Number of frequency values to average over
+  const updateInterval = 200; // Update visual every 200ms
 
   startButton.addEventListener('click', async () => {
     audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -61,12 +105,21 @@
     const frequency = autoCorrelate(dataArray, audioContext.sampleRate);
 
     if (frequency !== -1) {
-      const nearestNote = getNearestNote(frequency);
-      noteElement.textContent = nearestNote.note;
-      frequencyElement.textContent = `${frequency.toFixed(2)} Hz`;
-    } else {
-      noteElement.textContent = '---';
-      frequencyElement.textContent = '---';
+      frequencyHistory.push(frequency);
+      if (frequencyHistory.length > smoothingWindow) {
+        frequencyHistory.shift(); // Maintain a window of the most recent frequencies
+      }
+
+      const smoothedFrequency = frequencyHistory.reduce((a, b) => a + b, 0) / frequencyHistory.length;
+
+      const currentTime = performance.now();
+      if (currentTime - lastUpdate >= updateInterval) {
+        const nearestNote = getNearestNote(smoothedFrequency);
+        noteElement.textContent = nearestNote.note;
+        frequencyElement.textContent = `${smoothedFrequency.toFixed(2)} Hz`;
+        updateTuningStatus(smoothedFrequency, nearestNote.frequency);
+        lastUpdate = currentTime;
+      }
     }
 
     requestAnimationFrame(detectPitch);
@@ -130,6 +183,22 @@
     });
 
     return closestNote;
+  }
+
+  function updateTuningStatus(frequency, targetFrequency) {
+    const tolerance = 1.5; // Hz tolerance for determining in tune, flat, or sharp
+    const difference = frequency - targetFrequency;
+
+    if (Math.abs(difference) <= tolerance) {
+      statusElement.textContent = 'In Tune';
+      statusElement.className = 'tuner-status in-tune';
+    } else if (difference > tolerance) {
+      statusElement.textContent = 'Sharp';
+      statusElement.className = 'tuner-status sharp';
+    } else if (difference < -tolerance) {
+      statusElement.textContent = 'Flat';
+      statusElement.className = 'tuner-status flat';
+    }
   }
 </script>
 
