@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Guitar Tuner</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      margin-top: 50px;
+    }
+    #note {
+      font-size: 3em;
+      margin-top: 20px;
+    }
+    #frequency {
+      font-size: 2em;
+      color: gray;
+    }
+  </style>
+</head>
+<body>
+
+<h1>Guitar Tuner</h1>
+<button id="startButton">Start Tuning</button>
+<div id="note">---</div>
+<div id="frequency">---</div>
+
+<script>
+  const tuningFrequencies = [
+    { note: 'E2', frequency: 82.41 },
+    { note: 'A2', frequency: 110.00 },
+    { note: 'D3', frequency: 146.83 },
+    { note: 'G3', frequency: 196.00 },
+    { note: 'B3', frequency: 246.94 },
+    { note: 'E4', frequency: 329.63 }
+  ];
+
+  const noteElement = document.getElementById('note');
+  const frequencyElement = document.getElementById('frequency');
+  const startButton = document.getElementById('startButton');
+
+  let audioContext, analyser, dataArray, microphone;
+
+  startButton.addEventListener('click', async () => {
+    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    analyser = audioContext.createAnalyser();
+    analyser.fftSize = 2048;
+
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    microphone = audioContext.createMediaStreamSource(stream);
+    microphone.connect(analyser);
+
+    dataArray = new Float32Array(analyser.fftSize);
+    detectPitch();
+  });
+
+  function detectPitch() {
+    analyser.getFloatTimeDomainData(dataArray);
+    const frequency = autoCorrelate(dataArray, audioContext.sampleRate);
+
+    if (frequency !== -1) {
+      const nearestNote = getNearestNote(frequency);
+      noteElement.textContent = nearestNote.note;
+      frequencyElement.textContent = `${frequency.toFixed(2)} Hz`;
+    } else {
+      noteElement.textContent = '---';
+      frequencyElement.textContent = '---';
+    }
+
+    requestAnimationFrame(detectPitch);
+  }
+
+  function autoCorrelate(buffer, sampleRate) {
+    let SIZE = buffer.length;
+    let maxSamples = Math.floor(SIZE / 2);
+    let bestOffset = -1;
+    let bestCorrelation = 0;
+    let rms = 0;
+    let foundGoodCorrelation = false;
+    let correlations = new Array(maxSamples);
+
+    for (let i = 0; i < SIZE; i++) {
+      rms += buffer[i] * buffer[i];
+    }
+    rms = Math.sqrt(rms / SIZE);
+
+    if (rms < 0.01) return -1;
+
+    let lastCorrelation = 1;
+    for (let offset = 0; offset < maxSamples; offset++) {
+      let correlation = 0;
+
+      for (let i = 0; i < maxSamples; i++) {
+        correlation += Math.abs(buffer[i] - buffer[i + offset]);
+      }
+
+      correlation = 1 - (correlation / maxSamples);
+      correlations[offset] = correlation;
+
+      if (correlation > 0.9 && correlation > lastCorrelation) {
+        foundGoodCorrelation = true;
+        if (correlation > bestCorrelation) {
+          bestCorrelation = correlation;
+          bestOffset = offset;
+        }
+      } else if (foundGoodCorrelation) {
+        let shift = (correlations[bestOffset + 1] - correlations[bestOffset - 1]) / correlations[bestOffset];
+        return sampleRate / (bestOffset + 8 * shift);
+      }
+      lastCorrelation = correlation;
+    }
+    if (bestCorrelation > 0.01) {
+      return sampleRate / bestOffset;
+    }
+    return -1;
+  }
+
+  function getNearestNote(frequency) {
+    let minDiff = Infinity;
+    let closestNote = null;
+
+    tuningFrequencies.forEach(tuning => {
+      const diff = Math.abs(frequency - tuning.frequency);
+      if (diff < minDiff) {
+        minDiff = diff;
+        closestNote = tuning;
+      }
+    });
+
+    return closestNote;
+  }
+</script>
+
+</body>
+</html>
